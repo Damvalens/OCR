@@ -1,0 +1,7 @@
+requests
+streamlit
+Pillow
+pytesseract
+pdf2image
+pdfplumber
+pandas
