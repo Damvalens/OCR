@@ -11,6 +11,19 @@ import re
 # Configura aquí tu clave de API de OpenAI
 openai_api_key = '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'
 
+def make_unique_columns(columns):
+    """Función para hacer que los nombres de las columnas sean únicos."""
+    seen = {}
+    for i, col in enumerate(columns):
+        if col == '':
+            col = 'Unnamed'
+        if col in seen:
+            seen[col] += 1
+            columns[i] = f"{col}_{seen[col]}"
+        else:
+            seen[col] = 0
+    return columns
+
 def extract_tables_from_pdf(file):
     """Función para extraer tablas de un PDF y convertirlas en DataFrame de pandas."""
     tablas = []
@@ -21,22 +34,16 @@ def extract_tables_from_pdf(file):
                 st.write(f"Procesando página {numero_pagina + 1}")
                 for tabla in pagina.extract_tables():
                     if tabla:
-                        # Mantener encabezados originales
                         encabezados = tabla[0]
                         df = pd.DataFrame(tabla[1:], columns=encabezados)
-                        # Crear la fila de numeración de columnas
-                        numeracion_columnas = [str(i+1) for i in range(len(encabezados))]
-                        df_numeracion = pd.DataFrame([numeracion_columnas], columns=encabezados)
-                        # Concatenar la fila de numeración, luego los encabezados, y luego los datos
-                        df = pd.concat([df_numeracion, pd.DataFrame([encabezados], columns=encabezados), df]).reset_index(drop=True)
-                        # Agregar índices numéricos a las filas
-                        df.index = range(1, len(df) + 1)
+                        # Asegurar que las columnas tengan nombres únicos
+                        df.columns = make_unique_columns(df.columns.tolist())
+                        df.index = range(1, len(df) + 1)  # Agregar índices numéricos a las filas
                         tablas.append(df)
                 contenido_texto.append(pagina.extract_text())
     except Exception as e:
         st.error(f"Error extrayendo tablas del PDF: {e}")
     return tablas, contenido_texto
-
 
 def ocr_image(uploaded_file):
     """Función para realizar OCR en la imagen cargada, maneja tanto imágenes como PDF."""
@@ -56,42 +63,20 @@ def format_text_as_table(texto):
     lineas = texto.split('\n')
     datos = []
     for linea in lineas:
-        columnas = linea.split()  # Dividir por espacios en blanco
+        columnas = re.split(r'\s{2,}', linea.strip())  # Dividir por espacios en blanco de 2 o más
         datos.append(columnas)
     encabezados = datos[0]
-    df = pd.DataFrame(datos[1:], columns=encabezados)  # Primera línea como encabezado
-    # Insertar fila de numeración de columnas en la primera fila
-    numeracion_columnas = [str(i+1) for i in range(len(encabezados))]
-    df_numeracion = pd.DataFrame([numeracion_columnas], columns=encabezados)
-    # Concatenar la fila de numeración y luego los datos
-    df = pd.concat([pd.DataFrame([encabezados], columns=encabezados), df_numeracion, df]).reset_index(drop=True)
-    # Agregar índices numéricos a las filas
-    df.index = range(1, len(df) + 1)
+    df = pd.DataFrame(datos[1:], columns=encabezados)
+    df.columns = make_unique_columns(df.columns.tolist())  # Hacer los nombres de columnas únicos
+    df.index = range(1, len(df) + 1)  # Agregar índices numéricos a las filas
     return df
-
-def query_openai(texto):
-    """Función para enviar texto a la API de OpenAI y obtener respuesta."""
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/completions",
-            headers={"Authorization": f"Bearer {openai_api_key}"},
-            json={
-                "model": "gpt-4",
-                "prompt": texto,
-                "max_tokens": 150
-            }
-        )
-        data = response.json()
-        return data['choices'][0]['text']
-    except Exception as e:
-        return f"Error al obtener respuesta de OpenAI: {e}"
 
 def export_to_excel(df, sheet_name='Sheet1'):
     """Función para exportar el DataFrame a un archivo Excel."""
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     df.to_excel(writer, index=False, sheet_name=sheet_name)
-    writer.close()  # Cambia save() por close()
+    writer.close()
     processed_data = output.getvalue()
     return processed_data
 
@@ -138,7 +123,7 @@ def main():
                             writer = pd.ExcelWriter(output, engine='xlsxwriter')
                             for i, table in enumerate(tablas):
                                 table.to_excel(writer, index=False, sheet_name=f'Tabla_{i+1}')
-                            writer.close()  # Cambia save() por close()
+                            writer.close()
                             processed_data = output.getvalue()
                             st.download_button(
                                 label="Descargar Excel",
@@ -156,7 +141,7 @@ def main():
                     st.error(texto)
                 else:
                     st.write("Texto extraído de la factura:")
-                    st.text_area("Texto OCR", texto, height=200)  # Mostrar el texto extraído para depuración
+                    st.text_area("Texto OCR", texto, height=200)
 
                     # Organizar el texto extraído en columnas
                     df = format_text_as_table(texto)
@@ -182,3 +167,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
