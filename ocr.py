@@ -8,9 +8,24 @@ import pdfplumber
 import pandas as pd
 import io
 import re
+import openai
 
 # Carga la clave de API de OpenAI desde la variable de entorno ``OPENAI_API_KEY``
 openai_api_key = os.getenv("OPENAI_API_KEY")
+
+def query_openai(texto: str) -> str:
+    """Envía el texto a OpenAI y devuelve la respuesta generada."""
+    if not openai_api_key:
+        return "OPENAI_API_KEY no configurada."
+    try:
+        client = openai.OpenAI(api_key=openai_api_key)
+        completion = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": texto}],
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as exc:
+        return f"Error consultando OpenAI: {exc}"
 
 def make_unique_columns(columns):
     """Función para hacer que los nombres de las columnas sean únicos."""
@@ -25,12 +40,12 @@ def make_unique_columns(columns):
             seen[col] = 0
     return columns
 
-def extract_tables_from_pdf(file):
-    """Función para extraer tablas de un PDF y convertirlas en DataFrame de pandas."""
+def extract_tables_from_pdf(pdf_bytes: bytes):
+    """Extrae tablas de un PDF y devuelve el texto de cada página."""
     tablas = []
     contenido_texto = []
     try:
-        with pdfplumber.open(file) as pdf:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for numero_pagina, pagina in enumerate(pdf.pages):
                 st.write(f"Procesando página {numero_pagina + 1}")
                 for tabla in pagina.extract_tables():
@@ -41,23 +56,26 @@ def extract_tables_from_pdf(file):
                         df.columns = make_unique_columns(df.columns.tolist())
                         df.index = range(1, len(df) + 1)  # Agregar índices numéricos a las filas
                         tablas.append(df)
-                contenido_texto.append(pagina.extract_text())
+                contenido_texto.append(pagina.extract_text() or "")
     except Exception as e:
         st.error(f"Error extrayendo tablas del PDF: {e}")
     return tablas, contenido_texto
 
-def ocr_image(uploaded_file):
-    """Función para realizar OCR en la imagen cargada, maneja tanto imágenes como PDF."""
+def ocr_pdf_to_text(pdf_bytes: bytes) -> str:
+    """Realiza OCR sobre un PDF escaneado y devuelve el texto."""
     try:
-        if uploaded_file.type == "application/pdf":
-            images = convert_from_bytes(uploaded_file.getvalue())
-            text = ' '.join([pytesseract.image_to_string(img) for img in images])
-        else:
-            image = Image.open(uploaded_file)
-            text = pytesseract.image_to_string(image)
-        return text
-    except Exception as e:
-        return f"Error al procesar la imagen: {e}"
+        images = convert_from_bytes(pdf_bytes)
+        return "\n".join(pytesseract.image_to_string(img) for img in images)
+    except Exception as exc:
+        return f"Error procesando PDF: {exc}"
+
+def ocr_image(image_file) -> str:
+    """Realiza OCR sobre una imagen."""
+    try:
+        image = Image.open(image_file)
+        return pytesseract.image_to_string(image)
+    except Exception as exc:
+        return f"Error al procesar la imagen: {exc}"
 
 def format_text_as_table(texto):
     """Función para convertir texto extraído en una tabla de pandas."""
@@ -82,17 +100,16 @@ def export_to_excel(df, sheet_name='Sheet1'):
     return processed_data
 
 def main():
+    st.set_page_config(page_title="OCR DE MARKETPLACE S.A.", page_icon="📄", layout="wide")
     st.markdown(
         """
         <style>
-        .stApp {
-        }
         table {
             width: 100%;
             border-collapse: collapse;
         }
         th, td {
-            border: 1px solid black;  /* Líneas entre columnas */
+            border: 1px solid black;
             padding: 8px;
             text-align: left;
         }
@@ -101,17 +118,22 @@ def main():
         }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     st.title("OCR DE MARKETPLACE S.A.")
 
-    uploaded_file = st.file_uploader("Carga una imagen de factura aquí", type=["pdf", "png", "jpg", "jpeg"])
+    st.sidebar.header("Carga de Documento")
+    uploaded_file = st.sidebar.file_uploader(
+        "Carga una imagen o PDF de factura", type=["pdf", "png", "jpg", "jpeg"]
+    )
     if uploaded_file is not None:
+        file_bytes = uploaded_file.read()
+        uploaded_file.seek(0)
         with st.spinner('Procesando archivo...'):
             if uploaded_file.type == "application/pdf":
                 st.write("Archivo PDF subido correctamente.")
-                tablas, contenido_texto = extract_tables_from_pdf(uploaded_file)
+                tablas, contenido_texto = extract_tables_from_pdf(file_bytes)
                 if tablas:
                     for i, table in enumerate(tablas):
                         st.write(f"Tabla {i+1}")
@@ -133,9 +155,25 @@ def main():
                                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                             )
                 else:
-                    st.write("No se encontraron tablas en el PDF. Extrayendo texto.")
-                    for texto_pagina in contenido_texto:
-                        st.text_area("Texto Extraído", texto_pagina, height=300)
+                    st.write("No se encontraron tablas en el PDF. Aplicando OCR.")
+                    texto = ocr_pdf_to_text(file_bytes)
+                    st.text_area("Texto OCR", texto, height=300)
+                    df = format_text_as_table(texto)
+                    st.dataframe(df)
+
+                    if st.button("Guardar en Excel"):
+                        processed_data = export_to_excel(df)
+                        st.download_button(
+                            label="Descargar Excel",
+                            data=processed_data,
+                            file_name='resultados_factura.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        )
+                    if st.button("Analizar Texto con OpenAI"):
+                        with st.spinner('Obteniendo respuesta de OpenAI...'):
+                            result = query_openai(texto)
+                            st.write("Respuesta de OpenAI:")
+                            st.write(result)
             else:
                 texto = ocr_image(uploaded_file)
                 if texto.startswith("Error"):
