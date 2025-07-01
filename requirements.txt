@@ -6,3 +6,5 @@ pdf2image
 pdfplumber
 pandas
 xlsxwriter
+
+openai==1.3.7
