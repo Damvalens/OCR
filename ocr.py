@@ -1,3 +1,4 @@
+import os
 import requests
 import streamlit as st
 from PIL import Image
@@ -8,8 +9,8 @@ import pandas as pd
 import io
 import re
 
-# Configura aquí tu clave de API de OpenAI
-openai_api_key = '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'
+# Carga la clave de API de OpenAI desde la variable de entorno ``OPENAI_API_KEY``
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 def make_unique_columns(columns):
     """Función para hacer que los nombres de las columnas sean únicos."""
