@@ -7,6 +7,7 @@ import pdfplumber
 import pandas as pd
 import io
 import re
+import openai
 
 # Configura aquí tu clave de API de OpenAI
 openai_api_key = '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'
@@ -79,6 +80,22 @@ def export_to_excel(df, sheet_name='Sheet1'):
     writer.close()
     processed_data = output.getvalue()
     return processed_data
+
+
+def query_openai(texto):
+    """Envía el texto proporcionado a la API de OpenAI y devuelve la respuesta."""
+    try:
+        openai.api_key = openai_api_key
+        respuesta = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": texto}],
+        )
+        if respuesta.choices:
+            return respuesta.choices[0].message.content.strip()
+        return "OpenAI no devolvió ninguna respuesta."
+    except Exception as e:
+        st.error(f"Error al comunicarse con OpenAI: {e}")
+        return "No se pudo obtener una respuesta de OpenAI."
 
 def main():
     st.markdown(

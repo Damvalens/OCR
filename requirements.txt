@@ -6,3 +6,4 @@ pdf2image
 pdfplumber
 pandas
 xlsxwriter
+openai
