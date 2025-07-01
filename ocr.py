@@ -10,6 +10,30 @@ import io
 import re
 import openai
 
+# Estilos CSS para un diseño más moderno
+MODERN_STYLE = """
+<style>
+/* Fondo de gradiente */
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(120deg, #f6d365 0%, #fda085 100%);
+}
+[data-testid="stHeader"] {
+    background: rgba(0,0,0,0);
+}
+.stButton > button {
+    background-color: #007BFF;
+    color: white;
+    border-radius: 8px;
+    padding: 0.5em 1em;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+.stButton > button:hover {
+    background-color: #0056b3;
+    transform: scale(1.05);
+}
+</style>
+"""
+
 # Carga la clave de API de OpenAI desde la variable de entorno ``OPENAI_API_KEY``
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
@@ -46,8 +70,11 @@ def extract_tables_from_pdf(pdf_bytes: bytes):
     contenido_texto = []
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            total_paginas = len(pdf.pages)
+            progreso = st.progress(0)
             for numero_pagina, pagina in enumerate(pdf.pages):
-                st.write(f"Procesando página {numero_pagina + 1}")
+                progreso.progress((numero_pagina + 1) / total_paginas)
+                st.write(f"Procesando página {numero_pagina + 1}/{total_paginas}")
                 for tabla in pagina.extract_tables():
                     if tabla:
                         encabezados = tabla[0]
@@ -57,6 +84,7 @@ def extract_tables_from_pdf(pdf_bytes: bytes):
                         df.index = range(1, len(df) + 1)  # Agregar índices numéricos a las filas
                         tablas.append(df)
                 contenido_texto.append(pagina.extract_text() or "")
+            progreso.empty()
     except Exception as e:
         st.error(f"Error extrayendo tablas del PDF: {e}")
     return tablas, contenido_texto
@@ -101,6 +129,7 @@ def export_to_excel(df, sheet_name='Sheet1'):
 
 def main():
     st.set_page_config(page_title="OCR DE MARKETPLACE S.A.", page_icon="📄", layout="wide")
+    st.markdown(MODERN_STYLE, unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -135,11 +164,11 @@ def main():
                 st.write("Archivo PDF subido correctamente.")
                 tablas, contenido_texto = extract_tables_from_pdf(file_bytes)
                 if tablas:
+                    pestanas = st.tabs([f"Tabla {i+1}" for i in range(len(tablas))])
                     for i, table in enumerate(tablas):
-                        st.write(f"Tabla {i+1}")
-                        st.dataframe(table)
+                        with pestanas[i]:
+                            st.dataframe(table, use_container_width=True)
 
-                    # Botón para exportar las tablas a Excel
                     if st.button("Guardar Tablas en Excel"):
                         with st.spinner('Exportando tablas a Excel...'):
                             output = io.BytesIO()
@@ -154,6 +183,7 @@ def main():
                                 file_name='tablas_extraidas.xlsx',
                                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                             )
+                        st.balloons()
                 else:
                     st.write("No se encontraron tablas en el PDF. Aplicando OCR.")
                     texto = ocr_pdf_to_text(file_bytes)
@@ -169,11 +199,13 @@ def main():
                             file_name='resultados_factura.xlsx',
                             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         )
+                        st.balloons()
                     if st.button("Analizar Texto con OpenAI"):
                         with st.spinner('Obteniendo respuesta de OpenAI...'):
                             result = query_openai(texto)
                             st.write("Respuesta de OpenAI:")
                             st.write(result)
+                        st.snow()
             else:
                 texto = ocr_image(uploaded_file)
                 if texto.startswith("Error"):
@@ -195,6 +227,7 @@ def main():
                             file_name='resultados_factura.xlsx',
                             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                         )
+                        st.balloons()
 
                     # Enviar texto extraído a OpenAI
                     if st.button("Analizar Texto con OpenAI"):
@@ -202,6 +235,7 @@ def main():
                             result = query_openai(texto)
                             st.write("Respuesta de OpenAI:")
                             st.write(result)
+                        st.snow()
                         st.success("Datos guardados exitosamente en 'resultados_factura.xlsx'.")
 
 if __name__ == "__main__":
